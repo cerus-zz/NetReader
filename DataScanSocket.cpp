@@ -2,6 +2,7 @@
 #include "DataScanSocket.h"
 #include <QtNetwork/QTcpSocket>
 #include <QByteArray>
+#include <QBuffer>
 #include <QDataStream>
 #include <QHostAddress>
 #include <QDebug>
@@ -11,7 +12,8 @@
 #include <QThread>
 
 DataScanSocket::DataScanSocket(const QString& serverIpAddress, const ushort& serverPort, QObject *parent)
-    : QTcpSocket(parent), BasicInfoSize(28), mipAddress(serverIpAddress), mPort(serverPort), maxquesize(10000)
+    : QTcpSocket(parent), mipAddress(serverIpAddress), mPort(serverPort),
+      BasicInfoSize(28), maxquesize(10000), tmpMsg(0), Msghead(true), prelabel(0)
 {
     connect(this, SIGNAL(connected()), this, SLOT(prelusion()),Qt::QueuedConnection);
 //    connect(this, SIGNAL(readyread()), this, SLOT(receivedata()));
@@ -22,6 +24,7 @@ DataScanSocket::DataScanSocket(const QString& serverIpAddress, const ushort& ser
 DataScanSocket::~DataScanSocket()
 {
     msgque.~MessageQueue();
+    delete tmpMsg;
 }
 
 void DataScanSocket::connectToServer()
@@ -29,7 +32,7 @@ void DataScanSocket::connectToServer()
     QHostAddress hostAddr(mipAddress);
     connectToHost(hostAddr, mPort);
     /* this step cannot be missed, after this, this tcpsocket would try to connect to server */
-    if (!waitForConnected())
+    if (!waitForConnected(5000))
     {        
         emit PrintStatus("The socket is not connected");
     }
@@ -90,29 +93,43 @@ bool DataScanSocket::sendRequest(short ctrlcode, short reqnum)
 }
 
 void DataScanSocket::receiveData()
-{    
+{
+    // note that there will be several packages in the buffer,
+    // so using a loop to read all of them
+    // but sometimes ,the head is departed from its body,
+    // so we should judge whether the body can be read at the certain time,
+    // if false, then return.
     QDataStream in(this);
-//    in.setVersion(QDataStream::Qt_4_3);
-
-    AcqMessage *tmpMsg = new AcqMessage();
-
-    if (bytesAvailable() > 0)
+    while (bytesAvailable() >= 12)
     {
-        in.readRawData(tmpMsg->chId,4);
-        tmpMsg->chId[4] = '\0';
-        /* just these three fields are transfered from server in big-endian!! */
-        in.setByteOrder(QDataStream::BigEndian);
-        in >> tmpMsg->Code >> tmpMsg->Request >> tmpMsg->Size;
-
-        /* judge if this is a data packet */
-        if (tmpMsg->isDataPacket() && tmpMsg->Size>0 && (bytesAvailable()>=12+tmpMsg->Size) )
+        if (Msghead)
         {
+            tmpMsg = new AcqMessage();        // a new massage
+            in.readRawData(tmpMsg->chId,4);
+            tmpMsg->chId[4] = '\0';
+            /* just these three fields are transfered from server in big-endian!! */
+            in.setByteOrder(QDataStream::BigEndian);
+            in >> tmpMsg->Code >> tmpMsg->Request >> tmpMsg->Size;
+//            emit PrintStatus(tmpMsg->chId);
+//            emit PrintStatus("%%  " + QString::number(tmpMsg->Code)+ "  ; "
+//                                 + QString::number(tmpMsg->Request) + "  ;  "
+//                                 + QString::number(tmpMsg->Size) + "  %%");
+        }
+        /* judge if this is a data packet */
+        if ( tmpMsg->isDataPacket())
+        {
+            if (bytesAvailable() < tmpMsg->Size)
+            {
+                Msghead = false;
+                return;
+            }
+            Msghead = true;          // body have been gained, so next reading will be for head
             /* Debug:
             * this is for debug
             */
-            std::ofstream ofs("F:\\my_cs\\program-related\\Qtprogramming\\bin\\Netreader\\data.txt", std::ios_base::app);
-            if (!ofs)
-                qDebug() << "file open failed\n";
+//            std::ofstream ofs("F:\\my_cs\\program-related\\Qtprogramming\\bin\\Netreader\\data.txt", std::ios_base::app);
+//            if (!ofs)
+//                qDebug() << "file open failed\n";
             /*end*/
 
             in.setByteOrder(QDataStream::LittleEndian);
@@ -128,13 +145,13 @@ void DataScanSocket::receiveData()
                     {
                         in >> point_16;
                         tmpMsg->pbody.push_back((double)((qint32)point_16 * basicinfo.fResolution));
-                        ofs << (double)((qint32)point_16 * basicinfo.fResolution) << " ";
+//                        ofs << (double)((qint32)point_16 * basicinfo.fResolution) << " ";
                     }
                     else
                     {
                         in >> point_32;
                         tmpMsg->pbody.push_back((double)(point_32 * basicinfo.fResolution));
-                        ofs << (double)(point_32 * basicinfo.fResolution) << " ";
+//                        ofs << (double)(point_32 * basicinfo.fResolution) << " ";
                     }
                 }
                 /* this is for event label channel, note that the label would not be more than 255*/
@@ -142,27 +159,24 @@ void DataScanSocket::receiveData()
                 {
                     in >> point_16;
                     tmpMsg->pbody.push_back(point_16 & (0x00ff));
-                    ofs << (point_16 & (0x00ff)) << "\n";
+//                    ofs << (point_16 & (0x00ff)) << "\n";
                 }
                 else
                 {
                     in >> point_32;
                     tmpMsg->pbody.push_back(point_32 & (0x000000ff));
-                    ofs << (point_32 & (0x000000ff)) << "\n";
+//                    ofs << (point_32 & (0x000000ff)) << "\n";
                 }
 
             }
-            ofs << "\n";
+//            ofs << "\n";
             /* add the new message to the queue, but we hold a threshold size for this queue */
             /* otherwise, old messages would be get rid of                                   */
             msgque.addMessage(*tmpMsg, maxquesize);
 
-            ofs.close();
+//            ofs.close();
         }
-        else
-            return;
     }
-
 }
 
 void DataScanSocket::prelusion()
@@ -217,11 +231,12 @@ void DataScanSocket::prelusion()
             break;       // have gained basic infomation, so don't wait here
         }
     }
-    /* */
-    connect(this, SIGNAL(readyRead()), this, SLOT(receiveData()));
 
     /* send request for data */
     sendRequest(ServerControlCode, StartAcquisition);
     sendRequest(ClientControlCode, RequestStartData);
+
+    /* */
+    connect(this, SIGNAL(readyRead()), this, SLOT(receiveData()), Qt::DirectConnection);
 }
 

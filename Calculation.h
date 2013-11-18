@@ -14,16 +14,20 @@ class Calculation : public QObject
 private slots:
     void calc();
     void stoprunning();
-    void statesave();
+    void startsave(const QString&);
     //void changeClassifier();       // change the classifier to use
     void setPara(int traintrials);
-    void setObj(QString objlabel);
+    void setObj(int objlabel);
+    void startTrain();
+    void startTest();
 
 signals:
     void Printstatus(const QString& );
+    void GetObj();
+    void GetPara();
 
 public:
-    Calculation(DataScanSocket *tcpsocket, int trials, QString& fip, ushort fport, QObject *parent = 0 );
+    Calculation(DataScanSocket *tcpsocket, QString& fip, ushort fport, QObject *parent = 0 );
     ~Calculation();
     bool m_running;
 
@@ -41,6 +45,7 @@ private:
     QTcpSocket     *m_feedbackSocket;  // send result of classification to users
     QString        m_fipadd;
     ushort         m_fport;
+    QString*       m_savepath;     // path for saving file
 
 //    void removeEog_filter();
 };

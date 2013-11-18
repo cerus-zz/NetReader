@@ -19,6 +19,9 @@
 #include <QDebug>
 #include <QApplication>
 #include <QList>
+#include <QString>
+#include <QTcpSocket>
+#include <QHostAddress>
 
 ScanReader::ScanReader(QWidget *parent)
     :QDialog(parent), dsocket(NULL), calcprocess(NULL), tcpThread(NULL), calcThread(NULL),
@@ -110,9 +113,11 @@ ScanReader::ScanReader(QWidget *parent)
       //set slots and signals
       QObject::connect(Btn_connect_scan, SIGNAL(clicked()), this, SLOT(connect()));
       QObject::connect(Btn_start, SIGNAL(clicked()), this, SLOT(start()));
-      QObject::connect(Btn_savedata, SIGNAL(clicked()), this, SIGNAL(save()));
+      QObject::connect(Btn_savedata, SIGNAL(clicked()), this, SLOT(save()));
       QObject::connect(Btn_stop, SIGNAL(clicked()), this, SIGNAL(stop()));
       QObject::connect(Btn_disconnect_scan, SIGNAL(clicked()), this, SIGNAL(disconnect()));
+      QObject::connect(Btn_train, SIGNAL(clicked()), this, SIGNAL(train()));
+      QObject::connect(Btn_predict, SIGNAL(clicked()), this, SIGNAL(test()));
 
       //****************************
       //global layout for mainframe
@@ -136,23 +141,25 @@ QGroupBox *ScanReader::createConnectGBox()
 
     QLabel *L_scan_ip = new QLabel(tr("Scan的IP地址"));
     QLineEdit *Led_scan_ip = new QLineEdit;
-    Led_scan_ip->setText("10.14.86.111");
+    Led_scan_ip->setText("10.14.86.200");
     Led_scan_ip->setObjectName("Led_scan_ip");     // set name of this widget, which can be searched by the name
     form1->addRow(L_scan_ip, Led_scan_ip);
 
     QLabel *L_scan_port = new QLabel(tr("scan的端口号"));
     QLineEdit *Led_scan_port = new QLineEdit;
-    Led_scan_port->setText("4000");
+    Led_scan_port->setText("3999");
     Led_scan_port->setObjectName("Led_scan_port");
     form1->addRow(L_scan_port, Led_scan_port);
 
     QLabel *L_user_ip = new QLabel(tr("用户界面的IP地址"));
     QLineEdit *Led_user_ip = new QLineEdit;
+    Led_user_ip->setText("10.14.86.174");
     Led_user_ip->setObjectName("Led_user_ip");
     form1->addRow(L_user_ip, Led_user_ip);
 
     QLabel *L_user_port = new QLabel(tr("用户界面的端口号"));
     QLineEdit *Led_user_port = new QLineEdit;
+    Led_user_port->setText("4100");
     Led_user_port->setObjectName("Led_user_port");
     form1->addRow(L_user_port, Led_user_port);
 
@@ -172,16 +179,16 @@ QGroupBox *ScanReader::createExpGBox()
 
     QLabel *L_train_round = new QLabel(tr("训练轮数"));
     QSpinBox *Spn_train_round = new QSpinBox;
+    Spn_train_round->setObjectName("Spn_train_round");
     form2->addRow(L_train_round, Spn_train_round);
 
     QLabel *L_object_label = new QLabel(tr("本轮目标标签号"));
     QLineEdit *Led_object_label = new QLineEdit;
+    Led_object_label->setObjectName("Led_object_label");
+    Led_object_label->setText("0");
     form2->addRow(L_object_label, Led_object_label);
 
-    expBox->setLayout(form2);
-
-    QObject::connect(Spn_train_round, SIGNAL(valueChanged(int)), calcprocess, SLOT(setPara(int)));
-    QObject::connect(Led_object_label, SIGNAL(textEdited(QString)), calcprocess, SLOT(setObj(QString)));
+    expBox->setLayout(form2); 
     return expBox;
 }
 
@@ -197,20 +204,23 @@ QGroupBox *ScanReader::createOtherGBox()
 
     QLabel *L_save_path = new QLabel(tr("数据保存路径"));
     QLineEdit *Led_save_path = new QLineEdit;
+    Led_save_path->setText("F:\\data.txt");
+    Led_save_path->setObjectName("Led_save_path");
     form3->addRow(L_save_path, Led_save_path);
 
     otherBox->setLayout(form3);
     return otherBox;
 }
 
-void ScanReader::start()
+void ScanReader::start()       // slot
 {        
     if (dsocket &&tcpThread->isRunning() && calcprocess==NULL)  //
     {
         QString fadd = (this->findChild<QLineEdit *>("Led_user_ip"))->text();
         ushort fport = (this->findChild<QLineEdit *>("Led_user_port"))->text().toUShort();
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- " + fadd + "\n");
 
-        calcprocess = new Calculation(dsocket,1,fadd, fport);
+        calcprocess = new Calculation(dsocket,fadd, fport);
         qDebug() << "MARKED 1";
         calcThread = new QThread();
         qDebug() << "MARKED 2";
@@ -218,17 +228,23 @@ void ScanReader::start()
         qDebug() << "MARKED 3";
         QObject::connect(calcThread, SIGNAL(started()), calcprocess, SLOT(calc()), Qt::QueuedConnection);
         /* here should use Qt::DirectConnection, otherwise, the slots just don't response */
-        QObject::connect(this, SIGNAL(save()), calcprocess, SLOT(statesave()), Qt::DirectConnection);
+        QObject::connect(this, SIGNAL(startsave(const QString&)), calcprocess, SLOT(startsave(const QString&)), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(stop()), calcprocess, SLOT(stoprunning()), Qt::DirectConnection);
+        QObject::connect(this, SIGNAL(train()), calcprocess, SLOT(startTrain()), Qt::DirectConnection);
+        QObject::connect(this, SIGNAL(test()), calcprocess, SLOT(startTest()), Qt::DirectConnection);
         QObject::connect(calcThread, SIGNAL(finished()), this, SLOT(PrintCalcStop()), Qt::QueuedConnection);
         // signals for updating contents of QTextBrower
-        QObject::connect(calcprocess, SIGNAL(PrintStatus(const QString&)),this, SLOT(Printstatus(const QString&)));
+        QObject::connect(calcprocess, SIGNAL(Printstatus(const QString&)),this, SLOT(Printstatus(const QString&)));
 
+        QObject::connect(calcprocess, SIGNAL(GetPara()), this, SLOT(sendPara()),Qt::DirectConnection);
+        QObject::connect(this, SIGNAL(setPara(int)), calcprocess, SLOT(setPara(int)),Qt::DirectConnection);
+        QObject::connect(calcprocess, SIGNAL(GetObj()), this, SLOT(sendObj()),Qt::DirectConnection);
+        QObject::connect(this, SIGNAL(setObj(int)), calcprocess, SLOT(setObj(int)),Qt::DirectConnection);
         calcThread->start();
     }
     else
     {
-        (this->findChild<QTextBrowser *>("Brw_status"))->insertPlainText("-- connect to Scan first!!!\n");
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- connect to Scan first!!!\n");
     }
 }
 
@@ -244,11 +260,11 @@ void ScanReader::start()
 //        delete calcThread;
 //}
 
-void ScanReader::connect()
+void ScanReader::connect()    // slot
 {
     if (dsocket==NULL)
     {
-        (this->findChild<QTextBrowser *>("Brw_status"))->insertPlainText("-- CONNECTING!\n");
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- CONNECTING!\n");
         mipAddress = (this->findChild<QLineEdit *>("Led_scan_ip"))->text();
         mPort = (this->findChild<QLineEdit *>("Led_scan_port"))->text().toUShort();
 
@@ -268,7 +284,7 @@ void ScanReader::connect()
     }
 }
 
-void ScanReader::PrintTcpStop()
+void ScanReader::PrintTcpStop()   // slot
 {
     if (dsocket)
     {
@@ -276,11 +292,11 @@ void ScanReader::PrintTcpStop()
         dsocket = NULL;
         tcpThread->~QThread();
         tcpThread = NULL;
-        (this->findChild<QTextBrowser *>("Brw_status"))->insertPlainText("-- the socket thread is finished!\n");
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- the socket thread is finished!\n");
     }
 }
 
-void ScanReader::PrintCalcStop()
+void ScanReader::PrintCalcStop()   // slot
 {
     if (calcprocess)
     {
@@ -289,16 +305,29 @@ void ScanReader::PrintCalcStop()
         calcprocess = NULL;
         calcThread->~QThread();
         calcThread = NULL;
-        (this->findChild<QTextBrowser *>("Brw_status"))->insertPlainText("-- the calc thread is finished!\n");
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- the calc thread is finished!\n");
     }
 }
 
-void ScanReader::Printstatus(const QString& status)
+void ScanReader::Printstatus(const QString& status)  // slot
 {
-    (this->findChild<QTextBrowser *>("Brw_status"))->insertPlainText("-- " + status + "\n");
+    (this->findChild<QTextBrowser *>("Brw_status"))->append("-- " + status);
 }
 
-void ScanReader::test()
+void ScanReader::sendObj()  // slot
 {
-    (this->findChild<QTextBrowser *>("Brw_status"))->insertPlainText("-- tcpThread is finished\n");
+    Printstatus("sendObj");
+    emit setObj((this->findChild<QLineEdit *>("Led_object_label"))->text().toInt());
+
+}
+
+void ScanReader::sendPara()  // slot
+{
+    emit setPara( (this->findChild<QSpinBox *>("Spn_train_round"))->value() );
+}
+
+void ScanReader::save()  // slot
+{
+    // (this->findChild<QLineEdit *>("Led_save_path"))->text()
+    emit startsave("F:\\data.txt");
 }

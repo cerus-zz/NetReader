@@ -33,6 +33,7 @@ public:
  * it is used in. So it cannot be declared as a class variable.
  * It must be in the run thread.
  */
+class AcqMessage;
 class DataScanSocket : public QTcpSocket
 {
     Q_OBJECT
@@ -44,7 +45,7 @@ public:
     /* public variable */
     AcqBasicInfo basicinfo;      // basic infomation about setting of Neuroscan
     MessageQueue msgque;         // queue for messages
-    //QQueue<AcqMessage> TestQue;
+    //QQueue<AcqMessage> TestQue;    
 
 private slots:    
 //    void connectionClosedByServer();
@@ -58,13 +59,15 @@ signals:
     void PrintStatus(const QString&);
     void fastquit();
 
-private:
-    bool sendRequest(short ctrlcode, short reqnum);
-
-    const int BasicInfoSize;    // byte size of variables in AcqBasicInfo: 28
+private:    
+    bool sendRequest(short ctrlcode, short reqnum);    
     const QString mipAddress;   // ip address of server
     const ushort mPort;         // port of server
+    const int BasicInfoSize;    // byte size of variables in AcqBasicInfo: 28
     const int maxquesize;       // max size of msgque, more datapackage is byond endurance: 100 (40s)
+    AcqMessage *tmpMsg;
+    bool Msghead;               // whether to the head of massage, "false" for "the head is gained but body not"
+    int prelabel;
 
     // command control mode
     enum {GeneralControlCode=1, ServerControlCode, ClientControlCode};

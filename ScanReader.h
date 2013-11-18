@@ -17,7 +17,9 @@ private slots:
     void PrintCalcStop();
     void PrintTcpStop();
     void Printstatus(const QString &status);
-    void test();
+    void sendObj();
+    void sendPara();
+    void save();
 
 signals:
     /* ! Attention:
@@ -26,9 +28,13 @@ signals:
      *
      * if been implemented, then error "multiple definition of **"
      */
-    void save();
+    void startsave(const QString&);
     void stop();
     void disconnect();
+    void train();
+    void test();
+    void setObj(int);
+    void setPara(int);
 
 private:
 //    QWidget     *myWidget;
