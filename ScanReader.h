@@ -18,7 +18,6 @@ private slots:
     void PrintTcpStop();
     void Printstatus(const QString &status);
     void sendObj();
-    void sendPara();
     void save();
 
 signals:
@@ -33,8 +32,8 @@ signals:
     void disconnect();
     void train();
     void test();
+    void discardData();
     void setObj(int);
-    void setPara(int);
 
 private:
 //    QWidget     *myWidget;

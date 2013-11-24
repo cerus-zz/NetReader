@@ -95,6 +95,7 @@ ScanReader::ScanReader(QWidget *parent)
       QPushButton *Btn_start = new QPushButton(tr("开始接受信号数据"));
       QPushButton *Btn_stop = new QPushButton(tr("停止接受信号数据"));
       QPushButton *Btn_savedata = new QPushButton(tr("保存数据"));
+      QPushButton *Btn_discardData = new QPushButton(tr("删除本轮数据"));
       QPushButton *Btn_train = new QPushButton(tr("训练"));
       QPushButton *Btn_predict = new QPushButton(tr("预测"));
       subgridright->addWidget(Btn_connect_scan,0,0);
@@ -102,6 +103,7 @@ ScanReader::ScanReader(QWidget *parent)
       subgridright->addWidget(Btn_start,1,0);
       subgridright->addWidget(Btn_stop,1,1);
       subgridright->addWidget(Btn_savedata,2,0);
+      subgridright->addWidget(Btn_discardData,2,1);
       subgridright->addWidget(Btn_train,3,0);
       subgridright->addWidget(Btn_predict,3,1);
 
@@ -114,6 +116,7 @@ ScanReader::ScanReader(QWidget *parent)
       QObject::connect(Btn_connect_scan, SIGNAL(clicked()), this, SLOT(connect()));
       QObject::connect(Btn_start, SIGNAL(clicked()), this, SLOT(start()));
       QObject::connect(Btn_savedata, SIGNAL(clicked()), this, SLOT(save()));
+      QObject::connect(Btn_discardData, SIGNAL(clicked()), this, SIGNAL(discardData()));
       QObject::connect(Btn_stop, SIGNAL(clicked()), this, SIGNAL(stop()));
       QObject::connect(Btn_disconnect_scan, SIGNAL(clicked()), this, SIGNAL(disconnect()));
       QObject::connect(Btn_train, SIGNAL(clicked()), this, SIGNAL(train()));
@@ -177,10 +180,10 @@ QGroupBox *ScanReader::createExpGBox()
     form2->setHorizontalSpacing(40);
     form2->layout()->setContentsMargins(QMargins(20,20,20,20));
 
-    QLabel *L_train_round = new QLabel(tr("训练轮数"));
-    QSpinBox *Spn_train_round = new QSpinBox;
-    Spn_train_round->setObjectName("Spn_train_round");
-    form2->addRow(L_train_round, Spn_train_round);
+    QLabel *L_max_train_round = new QLabel(tr("最大训练轮数"));
+    QSpinBox *Spn_max_train_round = new QSpinBox;
+    Spn_max_train_round->setObjectName("Spn_max_train_round");
+    form2->addRow(L_max_train_round, Spn_max_train_round);
 
     QLabel *L_object_label = new QLabel(tr("本轮目标标签号"));
     QLineEdit *Led_object_label = new QLineEdit;
@@ -219,8 +222,13 @@ void ScanReader::start()       // slot
         QString fadd = (this->findChild<QLineEdit *>("Led_user_ip"))->text();
         ushort fport = (this->findChild<QLineEdit *>("Led_user_port"))->text().toUShort();
         (this->findChild<QTextBrowser *>("Brw_status"))->append("-- " + fadd + "\n");
-
-        calcprocess = new Calculation(dsocket,fadd, fport);
+        int max_run = (this->findChild<QSpinBox *>("Spn_max_train_round"))->value();
+        if (max_run<1)
+        {
+            (this->findChild<QTextBrowser *>("Brw_status"))->append("-- 最大训练轮数不能小于1 !\n");
+            return;
+        }
+        calcprocess = new Calculation(dsocket,fadd, fport, max_run);
         qDebug() << "MARKED 1";
         calcThread = new QThread();
         qDebug() << "MARKED 2";
@@ -229,6 +237,7 @@ void ScanReader::start()       // slot
         QObject::connect(calcThread, SIGNAL(started()), calcprocess, SLOT(calc()), Qt::QueuedConnection);
         /* here should use Qt::DirectConnection, otherwise, the slots just don't response */
         QObject::connect(this, SIGNAL(startsave(const QString&)), calcprocess, SLOT(startsave(const QString&)), Qt::DirectConnection);
+       // QObject::connect(this, SIGNAL(discardData()), calcprocess, SLOT(discardData()), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(stop()), calcprocess, SLOT(stoprunning()), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(train()), calcprocess, SLOT(startTrain()), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(test()), calcprocess, SLOT(startTest()), Qt::DirectConnection);
@@ -236,8 +245,6 @@ void ScanReader::start()       // slot
         // signals for updating contents of QTextBrower
         QObject::connect(calcprocess, SIGNAL(Printstatus(const QString&)),this, SLOT(Printstatus(const QString&)));
 
-        QObject::connect(calcprocess, SIGNAL(GetPara()), this, SLOT(sendPara()),Qt::DirectConnection);
-        QObject::connect(this, SIGNAL(setPara(int)), calcprocess, SLOT(setPara(int)),Qt::DirectConnection);
         QObject::connect(calcprocess, SIGNAL(GetObj()), this, SLOT(sendObj()),Qt::DirectConnection);
         QObject::connect(this, SIGNAL(setObj(int)), calcprocess, SLOT(setObj(int)),Qt::DirectConnection);
         calcThread->start();
@@ -319,11 +326,6 @@ void ScanReader::sendObj()  // slot
     Printstatus("sendObj");
     emit setObj((this->findChild<QLineEdit *>("Led_object_label"))->text().toInt());
 
-}
-
-void ScanReader::sendPara()  // slot
-{
-    emit setPara( (this->findChild<QSpinBox *>("Spn_train_round"))->value() );
 }
 
 void ScanReader::save()  // slot
