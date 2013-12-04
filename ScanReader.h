@@ -13,6 +13,7 @@ class ScanReader : public QDialog
     Q_OBJECT
 private slots:
     void connect();
+    void cutconnect();
     void start();
     void PrintCalcStop();
     void PrintTcpStop();
@@ -50,6 +51,9 @@ private:
     QGroupBox *createConnectGBox();    // GroupBox containing parameters for socket connection
     QGroupBox *createExpGBox();        // GroupBox containing parameters for experimental flow control
     QGroupBox *createOtherGBox();      // GroupBox containing other related parameters
+
+    // flags
+    bool s_saving;
 
 public:
     ScanReader( QWidget *parent=0);

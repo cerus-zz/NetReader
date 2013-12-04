@@ -22,10 +22,11 @@
 #include <QString>
 #include <QTcpSocket>
 #include <QHostAddress>
+#include <QFileDialog>
 
 ScanReader::ScanReader(QWidget *parent)
     :QDialog(parent), dsocket(NULL), calcprocess(NULL), tcpThread(NULL), calcThread(NULL),
-     mipAddress("10.14.86.111"), mPort(4000)
+      mipAddress("10.14.86.111"), mPort(4000), s_saving(false)
 {
     setWindowTitle(tr("ScanReader"));
     resize(QSize(839,575));                    // change size of mainframe, or override sizeHint()
@@ -83,14 +84,15 @@ ScanReader::ScanReader(QWidget *parent)
       QVBoxLayout *subvboxright = new QVBoxLayout;
       QLabel *L_caption = new QLabel(tr("连接即实验流程状态显示"));
       QTextBrowser *Brw_status = new QTextBrowser();
+      Brw_status->setFixedHeight(300);
       Brw_status->setObjectName("Brw_status");
       subvboxright->addWidget(L_caption);
       subvboxright->addWidget(Brw_status);
-      subvboxright->setContentsMargins(0,0,0,30);
+      subvboxright->setContentsMargins(0,0,0,10);
 
       // right down, for buttons
       QGridLayout *subgridright = new QGridLayout;
-      QPushButton *Btn_connect_scan = new QPushButton(tr("连接Scan"));
+      QPushButton *Btn_connect_scan = new QPushButton(tr("连接Scan"));      
       QPushButton *Btn_disconnect_scan = new QPushButton(tr("断开Scan连接"));
       QPushButton *Btn_start = new QPushButton(tr("开始接受信号数据"));
       QPushButton *Btn_stop = new QPushButton(tr("停止接受信号数据"));
@@ -98,6 +100,26 @@ ScanReader::ScanReader(QWidget *parent)
       QPushButton *Btn_discardData = new QPushButton(tr("删除本轮数据"));
       QPushButton *Btn_train = new QPushButton(tr("训练"));
       QPushButton *Btn_predict = new QPushButton(tr("预测"));
+      Btn_savedata->setObjectName("Btn_savedata");
+      Btn_connect_scan->setObjectName("Btn_connect_scan");
+      Btn_disconnect_scan->setObjectName("Btn_disconnect_scan");
+      Btn_connect_scan->setFixedWidth(150);
+      Btn_connect_scan->setFixedHeight(35);
+      Btn_disconnect_scan->setFixedWidth(150);
+      Btn_disconnect_scan->setFixedHeight(35);
+      Btn_start->setFixedWidth(150);
+      Btn_start->setFixedHeight(35);
+      Btn_stop->setFixedWidth(150);
+      Btn_stop->setFixedHeight(35);
+      Btn_savedata->setFixedWidth(150);
+      Btn_savedata->setFixedHeight(35);
+      Btn_discardData->setFixedWidth(150);
+      Btn_discardData->setFixedHeight(35);
+      Btn_train->setFixedWidth(150);
+      Btn_train->setFixedHeight(35);
+      Btn_predict->setFixedWidth(150);
+      Btn_predict->setFixedHeight(35);
+      // add to grid layout
       subgridright->addWidget(Btn_connect_scan,0,0);
       subgridright->addWidget(Btn_disconnect_scan,0,1);
       subgridright->addWidget(Btn_start,1,0);
@@ -106,11 +128,13 @@ ScanReader::ScanReader(QWidget *parent)
       subgridright->addWidget(Btn_discardData,2,1);
       subgridright->addWidget(Btn_train,3,0);
       subgridright->addWidget(Btn_predict,3,1);
-
+      // set spacing and margin
+      subgridright->setHorizontalSpacing(12);
+      subgridright->setContentsMargins(0,0,0,10);
       QVBoxLayout *vboxright = new QVBoxLayout;
       vboxright->addLayout(subvboxright);
       vboxright->addLayout(subgridright);
-      vboxright->layout()->setContentsMargins(10,0,0,0);
+      vboxright->layout()->setContentsMargins(10,0,10,0);
 
       //set slots and signals
       QObject::connect(Btn_connect_scan, SIGNAL(clicked()), this, SLOT(connect()));
@@ -118,7 +142,7 @@ ScanReader::ScanReader(QWidget *parent)
       QObject::connect(Btn_savedata, SIGNAL(clicked()), this, SLOT(save()));
       QObject::connect(Btn_discardData, SIGNAL(clicked()), this, SIGNAL(discardData()));
       QObject::connect(Btn_stop, SIGNAL(clicked()), this, SIGNAL(stop()));
-      QObject::connect(Btn_disconnect_scan, SIGNAL(clicked()), this, SIGNAL(disconnect()));
+      QObject::connect(Btn_disconnect_scan, SIGNAL(clicked()), this, SLOT(cutconnect()));
       QObject::connect(Btn_train, SIGNAL(clicked()), this, SIGNAL(train()));
       QObject::connect(Btn_predict, SIGNAL(clicked()), this, SIGNAL(test()));
 
@@ -217,7 +241,7 @@ QGroupBox *ScanReader::createOtherGBox()
 
 void ScanReader::start()       // slot
 {        
-    if (dsocket &&tcpThread->isRunning() && calcprocess==NULL)  //
+    if ( dsocket && QAbstractSocket::ConnectedState==dsocket->state() && tcpThread->isRunning() && calcprocess==NULL)  //
     {
         QString fadd = (this->findChild<QLineEdit *>("Led_user_ip"))->text();
         ushort fport = (this->findChild<QLineEdit *>("Led_user_port"))->text().toUShort();
@@ -226,6 +250,11 @@ void ScanReader::start()       // slot
         if (max_run<1)
         {
             (this->findChild<QTextBrowser *>("Brw_status"))->append("-- 最大训练轮数不能小于1 !\n");
+            return;
+        }
+        else if(max_run >=10 )
+        {
+            (this->findChild<QTextBrowser *>("Brw_status"))->append("-- 最大训练轮数不能超过9 !\n");
             return;
         }
         calcprocess = new Calculation(dsocket,fadd, fport, max_run);
@@ -237,7 +266,7 @@ void ScanReader::start()       // slot
         QObject::connect(calcThread, SIGNAL(started()), calcprocess, SLOT(calc()), Qt::QueuedConnection);
         /* here should use Qt::DirectConnection, otherwise, the slots just don't response */
         QObject::connect(this, SIGNAL(startsave(const QString&)), calcprocess, SLOT(startsave(const QString&)), Qt::DirectConnection);
-       // QObject::connect(this, SIGNAL(discardData()), calcprocess, SLOT(discardData()), Qt::DirectConnection);
+        QObject::connect(this, SIGNAL(discardData()), calcprocess, SLOT(discardData()), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(stop()), calcprocess, SLOT(stoprunning()), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(train()), calcprocess, SLOT(startTrain()), Qt::DirectConnection);
         QObject::connect(this, SIGNAL(test()), calcprocess, SLOT(startTest()), Qt::DirectConnection);
@@ -245,9 +274,18 @@ void ScanReader::start()       // slot
         // signals for updating contents of QTextBrower
         QObject::connect(calcprocess, SIGNAL(Printstatus(const QString&)),this, SLOT(Printstatus(const QString&)));
 
-        QObject::connect(calcprocess, SIGNAL(GetObj()), this, SLOT(sendObj()),Qt::DirectConnection);
+        QObject::connect(calcprocess, SIGNAL(GetObj()), this, SLOT(sendObj()),Qt::QueuedConnection);
         QObject::connect(this, SIGNAL(setObj(int)), calcprocess, SLOT(setObj(int)),Qt::DirectConnection);
         calcThread->start();
+
+    }
+    else if (QAbstractSocket::ConnectedState!=dsocket->state())
+    {
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- connect failed, server problem!!!\n");
+    }
+    else if (NULL != calcprocess)
+    {
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- Thread for reading data has been here!!!\n");
     }
     else
     {
@@ -288,7 +326,15 @@ void ScanReader::connect()    // slot
         QObject::connect(dsocket, SIGNAL(PrintStatus(const QString&)),this, SLOT(Printstatus(const QString&)));
 
         tcpThread->start();
+
+        (this->findChild<QPushButton *>("Btn_connect_scan"))->setEnabled(false);
     }
+}
+
+void ScanReader::cutconnect()
+{
+    (this->findChild<QPushButton *>("Btn_connect_scan"))->setEnabled(true);
+    emit disconnect();
 }
 
 void ScanReader::PrintTcpStop()   // slot
@@ -323,13 +369,25 @@ void ScanReader::Printstatus(const QString& status)  // slot
 
 void ScanReader::sendObj()  // slot
 {
-    Printstatus("sendObj");
+    qDebug() << "NOW SEND OBJECT LABEL\n";
     emit setObj((this->findChild<QLineEdit *>("Led_object_label"))->text().toInt());
-
 }
 
 void ScanReader::save()  // slot
 {
-    // (this->findChild<QLineEdit *>("Led_save_path"))->text()
-    emit startsave("F:\\data.txt");
+    if (!s_saving)
+    {
+        QString filename = QFileDialog::getOpenFileName(this, "choose Save path","E:\\",".txt");
+        (this->findChild<QTextBrowser *>("Brw_status"))->append(filename + "\n");
+        emit startsave(filename);
+        (this->findChild<QPushButton *>("Btn_savedata"))->setText("保存中...");
+        s_saving = true;
+    }
+    else
+    {
+        s_saving = false;
+        (this->findChild<QPushButton *>("Btn_savedata"))->setText("保存数据");
+        emit startsave("");
+    }
+
 }

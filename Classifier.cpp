@@ -1,15 +1,24 @@
 #include "Classifier.h"
-#include <iostream>
+#include <QDebug>
+#include <cmath>
 
 Classifier::Classifier(): model(0)
 {}
+
+Classifier::~Classifier()
+{
+    svm_destroy_param(&param);
+    svm_free_and_destroy_model(&model);
+}
 
 void Classifier::setParam()
 {
     param.svm_type = C_SVC;
     param.kernel_type = LINEAR;
+//    param.kernel_type = RBF;
     param.degree = 3;
     param.gamma = 0;
+//    param.gamma = 1e-004;  // rbf
     param.coef0 = 0;
     param.nu = 0.5;
     param.cache_size = 100;
@@ -19,12 +28,25 @@ void Classifier::setParam()
     param.probability = 0;
     param.nr_weight = 0;  // NULL
     param.C = 0.031250;
+//    param.C = 16;  // rbf
     param.weight = 0;    // NULL  
+}
+
+int Classifier::save_model(const char *model_file_name)
+{
+    model_file_name = NULL;
+    return 0;
+}
+
+void Classifier::load_model(const char *model_file_name)
+{
+    model = svm_load_model(model_file_name);
 }
 
 void Classifier::train(int samplesize, int featuredim, double *classtag, double *data)
 {    
     // data must first be transfered to standard style for libsvm, i.e. 1:value1 2:value2 ..
+    qDebug() << "featuredim:" << featuredim << "  samplesize: " << samplesize << "\n";
     struct svm_node* stdData = new svm_node[samplesize * (featuredim+1)];  // 1 for end flag "-1"
     int i, j, index;
     int cur = 0;
@@ -33,9 +55,9 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
         index = 0;
         for (j=0; j<featuredim; ++j)
         {
-            cur = i*featuredim + j;
+            cur = i*(featuredim+1) + j;
             stdData[cur].index = ++index;
-            stdData[cur].value = data[cur];
+            stdData[cur].value = data[i*featuredim + j];
         }
         stdData[cur+1].index = -1;   // -1 indicates the end of a sample feature, DON'T MISS IT!!!
     }
@@ -45,32 +67,58 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
     myprob.y = classtag;
     myprob.x = new svm_node*[samplesize];
     for (int i=0; i<samplesize; ++i)
-        myprob.x[i] = &stdData[i*featuredim];
+        myprob.x[i] = &stdData[i*(featuredim+1)];
 
     // check parameter first, here because we need problem
     const char *error_msg;
     error_msg = svm_check_parameter(&myprob, &param);
     if (error_msg)
     {
-        std::cerr << "ERROR: " << error_msg << "\n";
+        qDebug() << "ERROR: " << error_msg << "\n";
         return;
     }
     else
-        std::cout << "check over!\n";
+        qDebug() << "check over!\n";
 
     // training
     model = svm_train(&myprob, &param);
+    qDebug() << "svm_train just over\n";
+    // save model
+//    if (-1 == svm_save_model("F:\\model", model))
+//        qDebug() << "sth. wrong with saving model\n";
+
+    // this pointers point to non-local object, delete them for safety
     myprob.x = 0;
     myprob.y = 0;
+    // we don't want to save all train data except the Support vectors
+    // but we should transfer the svs to a new mem before we delete the original train data
+    svm_node **tmp = model->SV;
+    model->SV = new svm_node*[model->l];
+    for (i=0; i<model->l; ++i)
+    {
+        model->SV[i] = new svm_node[featuredim+1];
+        for (j=0; j<featuredim; ++j)
+        {
+            model->SV[i][j].index = j+1;
+            model->SV[i][j].value = (*(tmp + i) + j)->value;
+        }
+    }
+    qDebug() << "just transfer svs\n";
+    tmp = NULL;
     delete[] stdData;
-    svm_destroy_param(&param);
+//    svm_destroy_param(&param);
 }
 
-void Classifier::test(int testsize, int featuredim, double *classtag, double *data, double* predict_tag)
+double Classifier::test(int testsize, int featuredim, double *classtag, double *data, double* predict_tag)
 {
     // this code epoch shows how to usgin function svm_predict
     if (classtag==0)
         classtag = 0;
+    if (NULL == predict_tag)
+    {
+        qDebug() << "predict_tag can't be NULL!\n";
+        return -1;
+    }
 //    struct svm_node* testdata = new svm_node[testsize * (featuredim+1)];
 //    int i, j, index;
 //    for(i=0; i<testsize; ++i)
@@ -89,20 +137,60 @@ void Classifier::test(int testsize, int featuredim, double *classtag, double *da
     // calculate geometric margin for test samples
     double geo_margin = 0;
     int i = 0, j = 0, k = 0;
+    double *sv_coef = model->sv_coef[0];
     for (i=0; i<testsize; ++i)
     {
         geo_margin = 0;
-        for (j=0; j<(*model->nSV); ++j)
+        for (j=0; j<model->l; ++j)   // model->l is the total number of SVs from all classes
         {
             double tmp = 0;
             for (k=0; k<featuredim; ++k)
             {
-                tmp += data[i*featuredim + k] * model->SV[j]->value;
-                tmp *= model->sv_coef[j][1];
+                tmp += *(data+i*featuredim + k) * (*(model->SV + j) + k)->value;
+//                double d = *(data+i*featuredim + k) - (*(model->SV + j) + k)->value; // rbf
+//                tmp += d * d;  // rbf
             }
-            geo_margin += tmp;
+//            tmp = exp(-param.gamma * tmp);  // rbf
+            geo_margin += (tmp * sv_coef[j]);
         }
         predict_tag[i] = geo_margin - *model->rho;
-
+        // Note here!
+        // the sequence of support vectors depend on the sequence of labels ([1,-1] or [-1,1]),
+        // so if model->label[0] = -1, and the predict_tag[i] > 0,then the sample belongs to -1 class
+        // and vice versa. So for convenience, we multiply predict_tag[i] by model->label[0],
+        // and then we can just reckon that the bigger the geometric margin, the greater probability that
+        // the sample belongs to 1 class!!!
+        predict_tag[i] *= model->label[0];
     }
+
+    qDebug() << "test over indeed\n";
+    double accuracy = 0.0;
+    for ( i=0; i<testsize; ++i)
+    {
+        if ((predict_tag[i]>0 && classtag[i]>0) || (predict_tag[i]<0 && classtag[i]<0))
+            accuracy += 1;
+    }
+    return accuracy / (testsize * 1.0);
+}
+
+double Classifier::dot(double *x1, double *x2, int size)
+{
+    double res = 0;
+    for (int i=0; i<size; ++i)
+    {
+        res += x1[i] * x2[i];
+    }
+    return res;
+}
+
+double Classifier::rbf(double *x1, double *x2, int size)
+{
+    double sum = 0, d = 0;
+    for (int i=0; i<size; ++i)
+    {
+        d = x1[i] - x2[i];
+        sum += d * d;
+    }
+
+    return exp(-param.gamma * sum);
 }

@@ -2,12 +2,14 @@
 #define CALCULATION_H
 
 #include <QObject>
+#include <fstream>
 
 class DataScanSocket;
 class QThread;
 class Classifier;
 class QTcpSocket;
 class QString;
+
 class Calculation : public QObject
 {    
     Q_OBJECT
@@ -38,9 +40,9 @@ private:
     int            m_objlabel;
     int            m_featuredim;    // feature dimension
     int            m_ecnum;         // event number in each run
-    unsigned int   m_samplesize;
+    int            m_samplesize;
     int            m_max_run;       // max number of runs used for training
-    int            m_haverun;
+    int            m_haverun;       // "valid" training runs of data
 
     DataScanSocket *dsocket;
     double         *m_trainData;    // store data of several trials which have been preprocessed, samples * features
@@ -48,8 +50,8 @@ private:
     Classifier     *m_classifier;   // classifier used
     QTcpSocket     *m_feedbackSocket;  // send result of classification to users
     QString        m_fipadd;
-    ushort         m_fport;
-    QString*       m_savepath;      // path for saving file
+    ushort         m_fport;   
+    std::ofstream  m_ofile;          // ofstream for saving file
 
 //    void removeEog_filter();
 };
