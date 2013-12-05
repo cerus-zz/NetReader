@@ -17,7 +17,7 @@
 Calculation::Calculation(DataScanSocket *tcpsocket, QString &fip, ushort fport, int max_run, QObject *parent )
     :QObject(parent), m_running(false),  m_saving(false),  m_readygo(false),
       m_objlabel(1), m_featuredim(0), m_ecnum(0), m_samplesize(0), m_max_run(max_run), m_haverun(0),
-      dsocket(tcpsocket), m_classifier(new Classifier()),
+      dsocket(tcpsocket), m_classifier(new Classifier()), m_labelList(NULL), m_eclatency(NULL),
       m_feedbackSocket(NULL), m_fipadd(fip), m_fport(fport), m_ofile(NULL)
 {
     // by default here, a feature vector includes 200ms before and 800ms after onset
@@ -85,7 +85,7 @@ void Calculation::setObj(int objlabel)
 
 void Calculation::startTrain()
 {    
-    if (m_readygo)
+    if (false)
     {
         if (m_ecnum != 0)
             m_haverun = m_samplesize / m_ecnum;
@@ -132,11 +132,11 @@ void Calculation::startTest()
 {
     if (m_readygo)
     {
-        if (0 == m_samplesize)
-        {
-            emit Printstatus(".. no testing data... ..");
-            return;
-        }
+//        if (0 == m_samplesize)
+//        {
+//            emit Printstatus(".. no testing data... ..");
+//            return;
+//        }
         emit Printstatus(".. tTESTing... ..");
         sendCmd2user("C");
         // Note:
@@ -144,9 +144,49 @@ void Calculation::startTest()
         // this is very important, when a test is over, the test data is discarded.
 
         double* predict_label = new double[m_ecnum];
-        double accuracy = m_classifier->test(m_ecnum, m_featuredim, m_classTag+(m_samplesize-m_ecnum),
-                           m_trainData+(m_samplesize-m_ecnum)*m_featuredim, predict_label);
-        emit Printstatus(".. test accuracy is: " + QString::number(accuracy) + " ..");
+        int run_length = 0;
+        for (int i=0; i<m_ecnum; ++i)
+        {
+            if (250 == m_labelList[i])
+                predict_label[i] = -100;
+            else
+            {
+                run_length++;
+                predict_label[i] = 0;
+            }
+        }
+//        double accuracy = m_classifier->test(m_ecnum, m_featuredim, m_classTag+(m_samplesize-m_ecnum),
+//                           m_trainData+(m_samplesize-m_ecnum)*m_featuredim, predict_label);
+//        emit Printstatus(".. test accuracy is: " + QString::number(accuracy) + " ..");
+        int max_valid_interval = dsocket->basicinfo.SamplingRate * 750 / 1000;  // mouse click within 800ms 1s after event is valid
+        int min_valid_interval = dsocket->basicinfo.SamplingRate * 200 / 1000; // within 200ms after event is invalid
+
+        int i = 0, j = 0;
+        for (i=m_ecnum-1; i>=0; --i)
+        {
+            if (250==m_labelList[i])
+            {
+                j = i-1;
+
+                while (j>=0 && (m_eclatency[i] - m_eclatency[j]) < max_valid_interval)
+                {
+                    if (250 != m_labelList[j] && (m_eclatency[i] - m_eclatency[j]) > min_valid_interval)
+                    {
+                        predict_label[j] = 1;
+                        break;
+                    }
+                    else
+                        --j;
+                }
+            }
+        }
+
+        int index = 0;
+        for (int i=0; i<m_ecnum; ++i)
+        {
+            if (predict_label[i] != -100)
+                predict_label[index++] = predict_label[i];
+        }
         //do something with predict_label, i.e. send feedback(result) to users
         QByteArray block;
         QDataStream out(&block, QIODevice::WriteOnly);
@@ -155,7 +195,7 @@ void Calculation::startTest()
         char cmd[2] = "F";
         out.writeRawData(cmd,1);
 
-        for (int i=0; i<m_ecnum; ++i)
+        for (int i=0; i<run_length; ++i)
         {
             out << predict_label[i];
         }
@@ -167,8 +207,8 @@ void Calculation::startTest()
         emit Printstatus(".. tESTing is over..");
         delete[] predict_label;
 
-        if (m_samplesize/m_ecnum >= 10)
-            m_samplesize -= m_ecnum;       // the test data is discarded now
+//        if (m_samplesize/m_ecnum >= 10)
+//            m_samplesize -= m_ecnum;       // the test data is discarded now
     }
 }
 
@@ -316,7 +356,7 @@ void Calculation::calc()
                         else
                         {
                             // record event label and latency
-                            if (eventclass!=0 && eventclass!=250 && eventclass!=preec)
+                            if (eventclass!=0 && eventclass!=preec)
                             {
                                 m_labelList[m_ecnum] = eventclass;
                                 m_eclatency[m_ecnum] = curclm+1;
@@ -327,14 +367,14 @@ void Calculation::calc()
                             {
                                 *(m_rawData+experimenttime*cl+curclm) = tmpMsq->pbody.at(rw*(1+channelnum)+cl);
                             }
-                            if (m_saving && m_ofile.is_open())
-                            {
-                                for (int cl=0; cl<1+channelnum; ++cl)
-                                {
-                                    m_ofile << *(m_rawData+experimenttime*cl+curclm) << " ";
-                                }
-                                m_ofile << "\n";
-                            }
+//                            if (m_saving && m_ofile.is_open())
+//                            {
+//                                for (int cl=0; cl<1+channelnum; ++cl)
+//                                {
+//                                    m_ofile << *(m_rawData+experimenttime*cl+curclm) << " ";
+//                                }
+//                                m_ofile << "\n";
+//                            }
                             ++curclm;
                         }
                     }
@@ -370,7 +410,7 @@ void Calculation::calc()
          */
         if (r_justOverTrial)
         {
-            if (m_ofile.is_open())
+            if (m_saving && m_ofile.is_open())
             {
                 for (int p=0; p<m_ecnum; ++p)
                 {
@@ -379,50 +419,51 @@ void Calculation::calc()
             }
             ++runs;
             emit Printstatus("..IT iS RUN: " + QString::number(runs)+ " .." );
-            emit Printstatus("..preprocess..");
 
-            /* preprocess raw data */
-            // remove EOG and DC, note that EOG channel is the last one by default!
-            pps->removeEog(m_rawData, experimenttime, channelnum, curclm, channelnum);
-            emit Printstatus("..removeEog end.. curclm is :" + QString::number(curclm));
+//            emit Printstatus("..preprocess..");
 
-            // bandpass filtering using ButterWorth
-            pps->filterPoint(m_rawData, experimenttime, channelnum, curclm, channelnum);
-            emit Printstatus("..filter end..");
+//            /* preprocess raw data */
+//            // remove EOG and DC, note that EOG channel is the last one by default!
+//            pps->removeEog(m_rawData, experimenttime, channelnum, curclm, channelnum);
+//            emit Printstatus("..removeEog end.. curclm is :" + QString::number(curclm));
 
-            // get segments
-            int downsample  = 10;      // downsampling rate
-            int timebeforeonset = 200, timeafteronset = 800;   // (ms), timebeforeonset can be negative when after onset actually
-            timebeforeonset = dsocket->basicinfo.SamplingRate * timebeforeonset / 1000;  // transfer time to numbers of sample points
-            timeafteronset =dsocket->basicinfo.SamplingRate * timeafteronset / 1000;
-            int lenpre = 200 * dsocket->basicinfo.SamplingRate / 1000;  // segment for baseline correct
+//            // bandpass filtering using ButterWorth
+//            pps->filterPoint(m_rawData, experimenttime, channelnum, curclm, channelnum);
+//            emit Printstatus("..filter end..");
 
-            pps->Segmentation(m_rawData, experimenttime, m_trainData+m_samplesize*m_featuredim, m_classTag+m_samplesize, \
-                             m_objlabel, m_eclatency, m_ecnum, m_labelList, \
-                             lenpre, timebeforeonset, timeafteronset, \
-                             dsocket->basicinfo.EegChannelNum, dsocket->basicinfo.EegChannelNum, downsample);
-            m_samplesize += m_ecnum;
-            emit Printstatus("..segmentation end ..\n.. training RUN: "
-                             + QString::number(m_samplesize/m_ecnum) + " ..");
+//            // get segments
+//            int downsample  = 10;      // downsampling rate
+//            int timebeforeonset = 200, timeafteronset = 800;   // (ms), timebeforeonset can be negative when after onset actually
+//            timebeforeonset = dsocket->basicinfo.SamplingRate * timebeforeonset / 1000;  // transfer time to numbers of sample points
+//            timeafteronset =dsocket->basicinfo.SamplingRate * timeafteronset / 1000;
+//            int lenpre = 200 * dsocket->basicinfo.SamplingRate / 1000;  // segment for baseline correct
 
-            // preprocess done, indicates that train or test is avaiable now
+//            pps->Segmentation(m_rawData, experimenttime, m_trainData+m_samplesize*m_featuredim, m_classTag+m_samplesize, \
+//                             m_objlabel, m_eclatency, m_ecnum, m_labelList, \
+//                             lenpre, timebeforeonset, timeafteronset, \
+//                             dsocket->basicinfo.EegChannelNum, dsocket->basicinfo.EegChannelNum, downsample);
+//            m_samplesize += m_ecnum;
+//            emit Printstatus("..segmentation end ..\n.. training RUN: "
+//                             + QString::number(m_samplesize/m_ecnum) + " ..");
+
+//            // preprocess done, indicates that train or test is avaiable now
             m_readygo = true;
 
-            // TEST: output samples (feature vectors)****************************
-            if (ofsam)
-            {
-                int havesize = m_samplesize*m_featuredim;
-                for (int i=0; i<m_ecnum; ++i)
-                {
-                    ofsam << m_classTag[i] << " ";
-                    for (int j=0; j<m_featuredim; ++j)
-                    {
-                        ofsam << *(m_trainData + havesize + i*m_featuredim + j) << " ";
-                    }
-                    ofsam << "\n";
-                }
-            }
-            //********************************************************************
+//            // TEST: output samples (feature vectors)****************************
+//            if (ofsam.is_open())
+//            {
+//                int havesize = m_samplesize*m_featuredim;
+//                for (int i=0; i<m_ecnum; ++i)
+//                {
+//                    ofsam << m_classTag[i] << " ";
+//                    for (int j=0; j<m_featuredim; ++j)
+//                    {
+//                        ofsam << *(m_trainData + havesize + i*m_featuredim + j) << " ";
+//                    }
+//                    ofsam << "\n";
+//                }
+//            }
+//            //********************************************************************
 
             // in case for preprocessing during a trial
             r_justOverTrial = false;  // don't miss it

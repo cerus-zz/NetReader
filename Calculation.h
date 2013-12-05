@@ -48,6 +48,8 @@ private:
     double         *m_trainData;    // store data of several trials which have been preprocessed, samples * features
     double         *m_classTag;     // class tag for each sample
     Classifier     *m_classifier;   // classifier used
+    int            *m_labelList;
+    int            *m_eclatency;
     QTcpSocket     *m_feedbackSocket;  // send result of classification to users
     QString        m_fipadd;
     ushort         m_fport;   
