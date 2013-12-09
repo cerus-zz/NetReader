@@ -5,7 +5,6 @@
 #include <sstream>
 #include <QThread>
 #include <QDebug>
-#include <QFile>
 #include <QTcpSocket>
 #include <QByteArray>
 #include <QDataStream>
@@ -144,14 +143,13 @@ void Calculation::startTest()
         // this is very important, when a test is over, the test data is discarded.
 
         double* predict_label = new double[m_ecnum];
-        int run_length = 0;
+
         for (int i=0; i<m_ecnum; ++i)
         {
             if (250 == m_labelList[i])
                 predict_label[i] = -100;
             else
             {
-                run_length++;
                 predict_label[i] = 0;
             }
         }
@@ -185,8 +183,12 @@ void Calculation::startTest()
         for (int i=0; i<m_ecnum; ++i)
         {
             if (predict_label[i] != -100)
+            {
                 predict_label[index++] = predict_label[i];
+                m_ofile << predict_label[i] << "\n";
+            }
         }
+
         //do something with predict_label, i.e. send feedback(result) to users
         QByteArray block;
         QDataStream out(&block, QIODevice::WriteOnly);
@@ -195,7 +197,7 @@ void Calculation::startTest()
         char cmd[2] = "F";
         out.writeRawData(cmd,1);
 
-        for (int i=0; i<run_length; ++i)
+        for (int i=0; i<index; ++i)
         {
             out << predict_label[i];
         }
@@ -218,7 +220,7 @@ void Calculation::startsave(const QString &path)
     {
         emit Printstatus("..start saving..");
         m_saving = true;
-        m_ofile.open(path.toStdString().c_str());
+        m_ofile.open(path.toStdString().c_str(), std::ios_base::app);
     }
     else
     {
@@ -265,16 +267,16 @@ void Calculation::calc()
     // about channels and time span
     const qint32 channelnum = dsocket->basicinfo.EegChannelNum;  // NOT including EVENT channel!!!!!
     const qint32 blockSamnum = dsocket->basicinfo.BlockPnts;
-    const int experimenttime = 3 * 60 * dsocket->basicinfo.SamplingRate;  // 3min -> **s
+    const int experimenttime = 8 * 60 * dsocket->basicinfo.SamplingRate;  // 8min -> **s, long enough for a run
 
     // allocation of memory --> 10 for default trials(runs), 160 for default event numbers in a trial(run)!!!
     double *m_rawData = new double[(channelnum+1) * experimenttime];  // 1 for event channel
     if (m_rawData==NULL)
         qDebug() << "new for m_rawData failed!";
-    int *m_labelList = new int[300];              // store labels of each sample in m_trainData
+    m_labelList = new int[300];              // store labels of each sample in m_trainData
     if (m_labelList==NULL)
         qDebug() << "new for m_labelList failed!";
-    int *m_eclatency = new int[300];              // latency (time) of event class in the recorded data
+    m_eclatency = new int[300];              // latency (time) of event class in the recorded data
     if (m_eclatency==NULL)
         qDebug() << "new for m_eclatency failed!";
 
@@ -330,10 +332,8 @@ void Calculation::calc()
                 for (int rw=0; rw<blockSamnum; ++rw)
                 {
                     //  event channel is the LAST channel
-                    eventclass = tmpMsq->pbody.at(rw*(channelnum+1)+channelnum);
-                    //TEST
-                    if (eventclass != 0 && eventclass!=250 && eventclass!=preec)
-                        emit Printstatus(QString::number(eventclass));
+                    eventclass = tmpMsq->pbody.at(rw*(channelnum+1)+channelnum);                  
+
                     /* using eventclass to judge if the trial should begin or over */
                     if (r_inTrial)
                     {
@@ -358,6 +358,7 @@ void Calculation::calc()
                             // record event label and latency
                             if (eventclass!=0 && eventclass!=preec)
                             {
+                                emit Printstatus(QString::number(eventclass));
                                 m_labelList[m_ecnum] = eventclass;
                                 m_eclatency[m_ecnum] = curclm+1;
                                 ++m_ecnum;
@@ -395,8 +396,8 @@ void Calculation::calc()
                         }
 
                     }
-                    if (eventclass!=250)  // 250 for mouse click, which should be neglected
-                        preec = eventclass;
+                    //if (eventclass!=250)  // 250 for mouse click, which should be neglected
+                    preec = eventclass;
                 }//endfor
 
             }//endif
