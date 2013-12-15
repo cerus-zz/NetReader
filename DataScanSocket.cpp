@@ -13,7 +13,7 @@
 
 DataScanSocket::DataScanSocket(const QString& serverIpAddress, const ushort& serverPort, QObject *parent)
     : QTcpSocket(parent), mipAddress(serverIpAddress), mPort(serverPort),
-      BasicInfoSize(28), maxquesize(10000), tmpMsg(0), Msghead(true), prelabel(0)
+      BasicInfoSize(28), maxquesize(10000), tmpMsg(new AcqMessage()), Msghead(true), prelabel(0)
 {
     connect(this, SIGNAL(connected()), this, SLOT(prelusion()),Qt::QueuedConnection);
 //    connect(this, SIGNAL(readyread()), this, SLOT(receivedata()));
@@ -89,6 +89,7 @@ bool DataScanSocket::sendRequest(short ctrlcode, short reqnum)
     write(block);
     waitForBytesWritten();   // after this, this tcpsocket would send data
     qDebug() << "--request sended--\n";
+    delete message;
     return true;
 }
 
@@ -104,7 +105,10 @@ void DataScanSocket::receiveData()
     {
         if (Msghead)
         {
-            tmpMsg = new AcqMessage();        // a new massage
+            // the head of data message does not need to be stored indeed,
+            // even though i do store the head here!
+            // a new massage start, so the body of the former message should be cleared !!!!!!
+            tmpMsg->pbody.clear();
             in.readRawData(tmpMsg->chId,4);
             tmpMsg->chId[4] = '\0';
             /* just these three fields are transfered from server in big-endian!! */
@@ -183,6 +187,60 @@ void DataScanSocket::prelusion()
 {
     // status: "Connected"
     /* gain basic info from server */
+
+//    // 1.
+//    //request for EDF Header and process it to extract electrodes information
+//    sendRequest(ClientControlCode, RequestEDFHeader);
+//    /* waitint for 40ms after sending request, since server send 40ms data once */
+//    AcqMessage msg;
+//    while (waitForReadyRead())
+//    {
+//        /* accept basic info */
+//        QDataStream in(this);
+
+//        if (bytesAvailable() < (12+BasicInfoSize))
+//            continue;
+//        else
+//        {
+//            in.readRawData(msg.chId,4);
+//            in.setByteOrder(QDataStream::BigEndian);     // !network BigEndian
+//            in >> msg.Code >> msg.Request >> msg.Size;
+//            in.setByteOrder(QDataStream::LittleEndian);  // change back
+//            if (msg.Code==DataType_InfoBlock && msg.Request==InfoType_BasicInfo
+//                    && msg.Size==BasicInfoSize)
+//            {
+//                in.setFloatingPointPrecision(QDataStream::SinglePrecision);
+//                in >> basicinfo.size         >> basicinfo.EegChannelNum
+//                   >> basicinfo.EventChannel >> basicinfo.BlockPnts
+//                   >> basicinfo.SamplingRate >> basicinfo.DataSize
+//                   >> basicinfo.fResolution;
+//            }
+//            /*Debug:
+//             *  be sure of head infomation
+//             */
+//            QFile ofs("F:\\my_cs\\program-related\\Qtprogramming\\bin\\Netreader\\data.txt");
+//            QTextStream out;
+//            ofs.open(QIODevice::WriteOnly);
+//            if (ofs.exists())
+//            {
+//                out.setDevice(&ofs);
+//                out << msg.Code << " " << msg.Request << " " << msg.Size << ";; ";
+//                out << basicinfo.size << " ;"<< basicinfo.EegChannelNum << " ;"
+//                    << basicinfo.EventChannel << " ;" << basicinfo.BlockPnts << " ;"
+//                    << basicinfo.SamplingRate << " ;" << basicinfo.DataSize << " ;"
+//                    << basicinfo.fResolution << "\n\n";
+
+//                ofs.close();
+//            }
+//            else
+//                qDebug() << "file open failed\n";
+//            /*end*/
+//            break;       // have gained basic infomation, so don't wait here
+//        }
+//    }
+
+    // 2.
+    // request for basic information like sampling rate etc.
     sendRequest(ClientControlCode, RequestBasicInfo);
     /* waitint for 40ms after sending request, since server send 40ms data once */
     AcqMessage msg;

@@ -3,10 +3,8 @@
 #include "svm.h"
 
 class Classifier
-{
-    struct svm_parameter param;
-    struct svm_model *model;
-public:
+{        
+public:   
     Classifier();
     ~Classifier();
     void setParam();
@@ -16,5 +14,18 @@ public:
     void load_model(const char *model_file_name);
     double dot(double *x1, double *x2, int size);
     double rbf(double *x1, double *x2, int size);
+    double AUCofROC(double *score, double *classtag, int size);    
+
+private:
+    struct svm_parameter param;
+    struct svm_model *model;
+
+    struct Obj
+    {
+        double score;
+        double label;
+    };
+    void quick_sort(Obj *tmp, int low, int high);
 };
+
 #endif // CLASSIFIER_H

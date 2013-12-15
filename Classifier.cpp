@@ -1,8 +1,11 @@
 #include "Classifier.h"
 #include <QDebug>
 #include <cmath>
+#include <algorithm>
+#include <exception>
+#include <QMessageBox>
 
-Classifier::Classifier(): model(0)
+Classifier::Classifier(): model(NULL)
 {}
 
 Classifier::~Classifier()
@@ -46,8 +49,8 @@ void Classifier::load_model(const char *model_file_name)
 void Classifier::train(int samplesize, int featuredim, double *classtag, double *data)
 {    
     // data must first be transfered to standard style for libsvm, i.e. 1:value1 2:value2 ..
-    qDebug() << "featuredim:" << featuredim << "  samplesize: " << samplesize << "\n";
-    struct svm_node* stdData = new svm_node[samplesize * (featuredim+1)];  // 1 for end flag "-1"
+    qDebug() << "featuredim:" << featuredim << "  samplesize: " << samplesize << "\n";  
+    struct svm_node* stdData  = new svm_node[samplesize * (featuredim+1)];  // 1 for end flag "-1"
     int i, j, index;
     int cur = 0;
     for (i=0; i<samplesize; ++i)
@@ -81,6 +84,10 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
         qDebug() << "check over!\n";
 
     // training
+    if (NULL!=model)
+    {
+        svm_free_and_destroy_model(&model);   // free the former model in case for mem leak
+    }
     model = svm_train(&myprob, &param);
     qDebug() << "svm_train just over\n";
     // save model
@@ -88,12 +95,12 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
 //        qDebug() << "sth. wrong with saving model\n";
 
     // this pointers point to non-local object, delete them for safety
-    myprob.x = 0;
-    myprob.y = 0;
+    myprob.x = NULL;
+    myprob.y = NULL;
     // we don't want to save all train data except the Support vectors
     // but we should transfer the svs to a new mem before we delete the original train data
     svm_node **tmp = model->SV;
-    model->SV = new svm_node*[model->l];
+    //model->SV = new svm_node*[model->l];
     for (i=0; i<model->l; ++i)
     {
         model->SV[i] = new svm_node[featuredim+1];
@@ -104,14 +111,17 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
         }
     }
     qDebug() << "just transfer svs\n";
-    tmp = NULL;
+    tmp = NULL;  // don't let "tmp" be a dangling pointer
     delete[] stdData;
 //    svm_destroy_param(&param);
 }
 
 double Classifier::test(int testsize, int featuredim, double *classtag, double *data, double* predict_tag)
 {
-    // this code epoch shows how to usgin function svm_predict
+    if (NULL == model)
+    {
+        return -1;
+    }
     if (classtag==0)
         classtag = 0;
     if (NULL == predict_tag)
@@ -119,6 +129,7 @@ double Classifier::test(int testsize, int featuredim, double *classtag, double *
         qDebug() << "predict_tag can't be NULL!\n";
         return -1;
     }
+    // this code epoch shows how to using function svm_predict
 //    struct svm_node* testdata = new svm_node[testsize * (featuredim+1)];
 //    int i, j, index;
 //    for(i=0; i<testsize; ++i)
@@ -194,3 +205,91 @@ double Classifier::rbf(double *x1, double *x2, int size)
 
     return exp(-param.gamma * sum);
 }
+
+void Classifier::quick_sort(Obj *tmp, int low, int high)
+{
+    int l = low, h = high;
+    Obj *lin = new Obj();
+    while (l<h)
+    {
+        while (l <= high && tmp[l].score >= tmp[low].score) ++l;
+        while (tmp[h].score < tmp[low].score) --h;
+        if (l<h)
+        {
+            lin->label = tmp[h].label;
+            lin->score = tmp[h].score;
+            tmp[h].label = tmp[l].label;
+            tmp[h].score = tmp[l].score;
+            tmp[l].label = lin->label;
+            tmp[l].score = lin->score;
+        }
+    }
+    lin->label = tmp[low].label;
+    lin->score = tmp[low].score;
+    tmp[low].label = tmp[h].label;
+    tmp[low].score = tmp[h].score;
+    tmp[h].label = lin->label;
+    tmp[h].score = lin->score;
+
+    if (low < h)    quick_sort(tmp, low, h-1);
+    if (h   < high) quick_sort(tmp, h+1, high);
+
+    delete lin;
+}
+
+double Classifier::AUCofROC(double *score, double *classtag, int size)
+{        
+    Obj    *tmparr= new Obj[size];
+    double *roc_x = new double[2+size];
+    double *roc_y = new double[2+size];
+    double Nnum = 0;   // number of negtive class
+    double Pnum = 0;   // number of postive class
+    int i = 0;
+    for (i=0; i<size; ++i)
+    {
+        tmparr[i].score = score[i];
+        tmparr[i].label = classtag[i];
+        if (1==classtag[i])            // for binary classification only
+            ++Pnum;
+        else
+            ++Nnum;
+    }
+
+    // SORT score first in descending order!
+    quick_sort(tmparr, 0 ,size-1);
+    roc_x[0] = roc_y[0] = 0;
+    double fp = 0;      // false positive
+    double tp = 0;      // true positive
+    for (i=1; i<1+size; ++i)
+    {
+        if (1==tmparr[i-1].label)
+            ++tp;
+        else
+            ++fp;
+        roc_x[i] = fp / Nnum;
+        roc_y[i] = tp / Pnum;
+    }
+    roc_x[1+size] = fp / Nnum;
+    roc_y[1+size] = tp / Pnum;
+
+    double auc = 0;
+    for (i=0; i<1+size; ++i)
+    {
+        if (roc_x[i+1] != roc_x[i])
+        {
+            auc += roc_y[i];
+        }
+    }
+
+    delete[] tmparr;
+    delete[] roc_x;
+    delete[] roc_y;
+    if (0!=Nnum)
+    {
+        auc /= Nnum;
+    }
+    else
+        auc = 0;
+    return auc;
+}
+

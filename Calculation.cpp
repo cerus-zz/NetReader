@@ -16,7 +16,7 @@
 // the  initialization better do seperately, I suppose
 Calculation::Calculation(DataScanSocket *tcpsocket, QString &fip, ushort fport, int max_run, QObject *parent )
     :QObject(parent), m_running(false),  m_saving(false),  m_readygo(false),
-      m_objlabel(1), m_featuredim(0), m_ecnum(0), m_samplesize(0), m_max_run(max_run), m_haverun(0),
+      m_objlabel(1), m_featuredim(0), m_samplesize(0), m_max_run(max_run),
       dsocket(tcpsocket), m_classifier(new Classifier()),
       m_feedbackSocket(NULL), m_fipadd(fip), m_fport(fport), m_ofile(NULL)
 {
@@ -37,12 +37,12 @@ Calculation::Calculation(DataScanSocket *tcpsocket, QString &fip, ushort fport, 
         m_featuredim /= downsample;
     qDebug() << "m_featuredim is :" << m_featuredim << "!!!!!!!!!!!!!!!!!!!!!!!\n";
 //    m_featuredim = 6000;
-    // Note: default training data for most 10 runs, and 160 event labels in a run !!! and 10 downsampling
+    // Note: default training data for most 10 runs, and 250 event labels in a run !!! and 10 downsampling
     qDebug() << "new for double";
-    m_trainData = new double[10 * 160 * m_featuredim];
+    m_trainData = new double[10 * 250 * m_featuredim];
     if (m_trainData==NULL)
         qDebug() << "new for m_trainData failed!";
-    m_classTag = new double[10 * 160];
+    m_classTag = new double[10 * 250];
     if (m_classTag==NULL)
         qDebug() << "new for m_classTag failed!";
 }
@@ -70,33 +70,33 @@ void Calculation::sendCmd2user(const char command[])
 
 void Calculation::discardData()
 {
-    if (m_readygo && m_samplesize>0)
+    if (m_readygo && m_ecnums.size()>0)
     {
-        m_samplesize -= m_ecnum;
-        emit Printstatus(".. OK, The Latest data has been discarded!\n.. the remaining Training RUN is: " + QString::number(m_samplesize/m_ecnum) + ".. ");
+        m_samplesize -= *(m_ecnums.end()-1);
+        m_ecnums.pop_back();
+        emit Printstatus(".. OK, The Latest data has been discarded!\n.. the remaining Training RUN is: " + QString::number(m_ecnums.size()) + ".. ");
     }
-}
-
-void Calculation::setObj(int objlabel)
-{
-    emit Printstatus("object: " + QString::number(objlabel));
-    m_objlabel = objlabel;
+    else
+    {
+        emit Printstatus(".. the remaining Training RUN is: " + QString::number(m_ecnums.size()) + ".. ");
+    }
 }
 
 void Calculation::startTrain()
 {    
     if (m_readygo)
     {
-        if (m_ecnum != 0)
-            m_haverun = m_samplesize / m_ecnum;
-        if (0 == m_haverun)
+        if (0 == m_ecnums.size())
         {
             emit Printstatus("..NO training data!..");
             return;
         }
-        if (m_haverun > m_max_run)
+        if (m_ecnums.size() > m_max_run)
         {
-            m_samplesize -= m_ecnum;
+            // the run over the m_max_runTH run will not be trained
+            // and will be covered by next run
+            m_samplesize -= *(m_ecnums.end()-1);
+            m_ecnums.pop_back();
             emit Printstatus(".. exceeds the max run, the new run WON'T be trained ..");
         }
 
@@ -116,11 +116,7 @@ void Calculation::startTrain()
         /*if change < 0 // go worse
             m_samplesize -= m_ecnum;
         else
-            go on next run*/
-        if (m_haverun > m_max_run)
-        {
-            m_samplesize += m_ecnum; // add back
-        }
+            go on next run*/  
     }
     else
     {
@@ -132,43 +128,46 @@ void Calculation::startTest()
 {
     if (m_readygo)
     {
-        if (0 == m_samplesize)
-        {
-            emit Printstatus(".. no testing data... ..");
-            return;
-        }
         emit Printstatus(".. tTESTing... ..");
         sendCmd2user("C");
         // Note:
         // test data also append to m_trainData! m_samplesize has been updated to
         // this is very important, when a test is over, the test data is discarded.
-
-        double* predict_label = new double[m_ecnum];
-        double accuracy = m_classifier->test(m_ecnum, m_featuredim, m_classTag+(m_samplesize-m_ecnum),
-                           m_trainData+(m_samplesize-m_ecnum)*m_featuredim, predict_label);
-        emit Printstatus(".. test accuracy is: " + QString::number(accuracy) + " ..");
-        //do something with predict_label, i.e. send feedback(result) to users
-        QByteArray block;
-        QDataStream out(&block, QIODevice::WriteOnly);
-        out.setVersion(QDataStream::Qt_5_0);
-        out.setByteOrder(QDataStream::BigEndian);  // bigendian on net
-        char cmd[2] = "F";
-        out.writeRawData(cmd,1);
-
-        for (int i=0; i<m_ecnum; ++i)
+        int ecnum = *(m_ecnums.end()-1);
+        qDebug() << QString::number(ecnum) << "YYY\n";
+        double* predict_label = new double[ecnum];
+        double accuracy = m_classifier->test(ecnum, m_featuredim, m_classTag+(m_samplesize-ecnum),
+                           m_trainData+(m_samplesize-ecnum)*m_featuredim, predict_label);
+        if (-1 == accuracy)
         {
-            out << predict_label[i];
+            emit Printstatus("Train First!!!");
+            sendCmd2user("A");
         }
+        else
+        {
+            emit Printstatus(".. test accuracy is: " + QString::number(accuracy) + " ..");
+            double auc = m_classifier->AUCofROC(predict_label, m_classTag+(m_samplesize-ecnum), ecnum);
+            emit Printstatus(".. test AUC is: " + QString::number(auc) + " ..");
+            //do something with predict_label, i.e. send feedback(result) to users
+            QByteArray block;
+            QDataStream out(&block, QIODevice::WriteOnly);
+            out.setVersion(QDataStream::Qt_5_0);
+            out.setByteOrder(QDataStream::BigEndian);  // bigendian on net
+            char cmd[2] = "F";
+            out.writeRawData(cmd,1);
 
-        m_feedbackSocket->write(block);
-        m_feedbackSocket->waitForBytesWritten();   // after this, this tcpsocket would send data
-        //end feedback, then delete the temporary space
+            for (int i=0; i<ecnum; ++i)
+            {
+                out << predict_label[i];
+            }
 
-        emit Printstatus(".. tESTing is over..");
-        delete[] predict_label;
+            m_feedbackSocket->write(block);
+            m_feedbackSocket->waitForBytesWritten();   // after this, this tcpsocket would send data
+            //end feedback, then delete the temporary space
 
-        if (m_samplesize/m_ecnum >= 10)
-            m_samplesize -= m_ecnum;       // the test data is discarded now
+            emit Printstatus(".. tESTing is over..");
+        }
+        delete[] predict_label;      
     }
 }
 
@@ -178,7 +177,7 @@ void Calculation::startsave(const QString &path)
     {
         emit Printstatus("..start saving..");
         m_saving = true;
-        m_ofile.open(path.toStdString().c_str());
+        m_ofile.open(path.toStdString().c_str());    // a non-existed file will be built by default
     }
     else
     {
@@ -202,7 +201,7 @@ void Calculation::stoprunning()
 }
 
 void Calculation::calc()
-{
+{    
     //****************** connect to user socket *********************//
     m_feedbackSocket = new QTcpSocket();
     QHostAddress hostAddr(m_fipadd);
@@ -215,10 +214,6 @@ void Calculation::calc()
         return;
     }
     emit Printstatus("..start read data..");
-    // using for write sth. to socket
-    QByteArray block;
-    QDataStream out(&block, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_5_0);
 
     //****************** initialize variable *********************//
 
@@ -240,6 +235,7 @@ void Calculation::calc()
 
     //invariants for the loop
     int curclm = 0;    //m_rawdata is channel*samplepoints(time), curclm indicates which time we get currently.(for one trial)
+    int ecnum = 0;     // event number of current run
     int eventclass, preec = 0;
     int runs = 0;
     AcqMessage *tmpMsq = new AcqMessage();
@@ -256,7 +252,7 @@ void Calculation::calc()
 
     // debug flags
     bool first = true;
-//    bool second = true;
+    bool second_on_off = true;
     bool third = true;
 
     //****************** start experiment flow *********************//
@@ -290,13 +286,15 @@ void Calculation::calc()
                 for (int rw=0; rw<blockSamnum; ++rw)
                 {
                     //  event channel is the LAST channel
-                    eventclass = tmpMsq->pbody.at(rw*(channelnum+1)+channelnum);
-                    //TEST
-                    if (eventclass != 0 && eventclass!=250 && eventclass!=preec)
-                        emit Printstatus(QString::number(eventclass));
+                    eventclass = tmpMsq->pbody.at(rw*(channelnum+1)+channelnum);                   
                     /* using eventclass to judge if the trial should begin or over */
                     if (r_inTrial)
                     {
+                        // show labels in real time
+                        if (eventclass != 0 && eventclass!=preec)
+                        {
+                            emit Printstatus(QString::number(eventclass));
+                        }
                         /* r_inTrial is true && eventclass is 253 indicates OVER */
                         if(eventclass==253)
                         {
@@ -304,6 +302,7 @@ void Calculation::calc()
                             sendCmd2user("A");
                             r_inTrial = false;
                             r_justOverTrial = true;
+                            second_on_off = true;
                             continue;
                         }
                         else if (252 == eventclass)     // the trial is interrupted!!! reset pointers
@@ -311,16 +310,17 @@ void Calculation::calc()
                             m_readygo = false;
                             r_inTrial = false;
                             r_justOverTrial = false;
+                            second_on_off = true;
                             continue;
                         }
                         else
                         {
                             // record event label and latency
-                            if (eventclass!=0 && eventclass!=250 && eventclass!=preec)
+                            if (eventclass!=0 && eventclass!=preec)
                             {
-                                m_labelList[m_ecnum] = eventclass;
-                                m_eclatency[m_ecnum] = curclm+1;
-                                ++m_ecnum;
+                                m_labelList[ecnum] = eventclass;
+                                m_eclatency[ecnum] = curclm+1;
+                                ++ecnum;
                             }
                             // record trial data, including event channel for saving data completely.
                             for (int cl=0; cl<1+channelnum; ++cl)
@@ -344,19 +344,29 @@ void Calculation::calc()
                         if (255 == eventclass)
                         {
                             // get the object label when a new trial(run) has started
-                            emit GetObj();
+                            //emit GetObj();
 
                             //TEST
                             emit Printstatus("TRIAL BEGIN!");
                             // training or testing is not allowed during a run
                             m_readygo = false;
                             r_inTrial = true;
-                            curclm = m_ecnum = 0;
+                            curclm = ecnum = 0;
+                        }
+                        else if (second_on_off && eventclass!=0 && eventclass<250)
+                        {
+                            // note that, here we think that if a label, which is not equal to any of
+                            // {252(break), 253(over),255(start)}, must be an object label of a run
+                            // if it doesn't emerge during a run, i.e. r_inTrial is true.
+                            second_on_off = false;
+                            m_objlabel = eventclass;
+                            emit ShowObj(m_objlabel);
+                            emit Printstatus("OBJ Label: " + QString::number(m_objlabel));
                         }
 
                     }
-                    if (eventclass!=250)  // 250 for mouse click, which should be neglected
-                        preec = eventclass;
+                    preec = eventclass;
+
                 }//endfor
 
             }//endif
@@ -372,7 +382,7 @@ void Calculation::calc()
         {
             if (m_ofile.is_open())
             {
-                for (int p=0; p<m_ecnum; ++p)
+                for (int p=0; p<ecnum; ++p)
                 {
                     m_ofile << m_labelList[p] << ":" << m_eclatency[p] << "\n";
                 }
@@ -391,6 +401,15 @@ void Calculation::calc()
             emit Printstatus("..filter end..");
 
             // get segments
+
+            // limit of buffersize, 10 runs data will be stored in memory
+            // if the number of valid runs is equal or more than 10,
+            // the 10th run will be discarded for the newest run.
+            if (m_ecnums.size() >= 10)
+            {
+                m_samplesize -= *(m_ecnums.end()-1);       // the test data is discarded now
+                m_ecnums.pop_back();
+            }
             int downsample  = 10;      // downsampling rate
             int timebeforeonset = 200, timeafteronset = 800;   // (ms), timebeforeonset can be negative when after onset actually
             timebeforeonset = dsocket->basicinfo.SamplingRate * timebeforeonset / 1000;  // transfer time to numbers of sample points
@@ -398,12 +417,13 @@ void Calculation::calc()
             int lenpre = 200 * dsocket->basicinfo.SamplingRate / 1000;  // segment for baseline correct
 
             pps->Segmentation(m_rawData, experimenttime, m_trainData+m_samplesize*m_featuredim, m_classTag+m_samplesize, \
-                             m_objlabel, m_eclatency, m_ecnum, m_labelList, \
+                             m_objlabel, m_eclatency, ecnum, m_labelList, \
                              lenpre, timebeforeonset, timeafteronset, \
                              dsocket->basicinfo.EegChannelNum, dsocket->basicinfo.EegChannelNum, downsample);
-            m_samplesize += m_ecnum;
-            emit Printstatus("..segmentation end ..\n.. training RUN: "
-                             + QString::number(m_samplesize/m_ecnum) + " ..");
+            m_samplesize += ecnum;
+            m_ecnums.push_back(ecnum);
+            emit Printstatus("..segmentation end ..\n.. training RUN: " + QString::number(m_ecnums.size())
+                             + " (+" + QString::number(*(m_ecnums.end()-1)) + ") ..");
 
             // preprocess done, indicates that train or test is avaiable now
             m_readygo = true;
@@ -412,7 +432,7 @@ void Calculation::calc()
             if (ofsam)
             {
                 int havesize = m_samplesize*m_featuredim;
-                for (int i=0; i<m_ecnum; ++i)
+                for (int i=0; i<ecnum; ++i)
                 {
                     ofsam << m_classTag[i] << " ";
                     for (int j=0; j<m_featuredim; ++j)

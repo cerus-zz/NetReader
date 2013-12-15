@@ -76,7 +76,7 @@ private:
     // Description for ServerControl
     enum {StartAcquisition=1, StopAcquisition};
     // Description for ClientControl
-    enum {RequestStartData=3, RequestStopData, RequestBasicInfo};
+    enum {RequestEDFHeader=1, RequestASTSetupFile, RequestStartData, RequestStopData, RequestBasicInfo};
     // type of requested data
     enum {DataType_InfoBlock=1, DataType_EegData, InfoType_BasicInfo};
     // sizeof(datatype)

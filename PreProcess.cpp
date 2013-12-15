@@ -142,6 +142,7 @@ void PreProcess::Segmentation(double *sig, int bufferlength,      // raw data an
         if (ecLabel[i]==250)   // 250 for mouse click
             continue;
         ecnum++;
+        qDebug() << QString::number(ecnum) << "&&&\n";
         /* attach class tag to each sample, 1 & -1 as default tags for binary classification situation here */
         if (ecLabel[i] ==objLabel)
             class_tag[sample] = 1;
@@ -171,7 +172,7 @@ void PreProcess::Segmentation(double *sig, int bufferlength,      // raw data an
         ++sample;
     }
 
-    eventnum = ecnum;
+    eventnum = ecnum;         // mouse clicks are not in count now
     qDebug() << "real event number" << QString::number(eventnum) << "\n"
                 <<"out of Segmentation\n";
 }

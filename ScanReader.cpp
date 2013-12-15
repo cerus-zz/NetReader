@@ -94,8 +94,8 @@ ScanReader::ScanReader(QWidget *parent)
       QGridLayout *subgridright = new QGridLayout;
       QPushButton *Btn_connect_scan = new QPushButton(tr("连接Scan"));      
       QPushButton *Btn_disconnect_scan = new QPushButton(tr("断开Scan连接"));
-      QPushButton *Btn_start = new QPushButton(tr("开始接受信号数据"));
-      QPushButton *Btn_stop = new QPushButton(tr("停止接受信号数据"));
+      QPushButton *Btn_start = new QPushButton(tr("开启信号处理"));
+      QPushButton *Btn_stop = new QPushButton(tr("停止信号处理"));
       QPushButton *Btn_savedata = new QPushButton(tr("保存数据"));
       QPushButton *Btn_discardData = new QPushButton(tr("删除本轮数据"));
       QPushButton *Btn_train = new QPushButton(tr("训练"));
@@ -274,10 +274,8 @@ void ScanReader::start()       // slot
         // signals for updating contents of QTextBrower
         QObject::connect(calcprocess, SIGNAL(Printstatus(const QString&)),this, SLOT(Printstatus(const QString&)));
 
-        QObject::connect(calcprocess, SIGNAL(GetObj()), this, SLOT(sendObj()),Qt::QueuedConnection);
-        QObject::connect(this, SIGNAL(setObj(int)), calcprocess, SLOT(setObj(int)),Qt::DirectConnection);
+        QObject::connect(calcprocess, SIGNAL(ShowObj(int)), this, SLOT(showObj(int)),Qt::DirectConnection);
         calcThread->start();
-
     }
     else if (QAbstractSocket::ConnectedState!=dsocket->state())
     {
@@ -367,21 +365,25 @@ void ScanReader::Printstatus(const QString& status)  // slot
     (this->findChild<QTextBrowser *>("Brw_status"))->append("-- " + status);
 }
 
-void ScanReader::sendObj()  // slot
+void ScanReader::showObj(int objlabel)  // slot
 {
-    qDebug() << "NOW SEND OBJECT LABEL\n";
-    emit setObj((this->findChild<QLineEdit *>("Led_object_label"))->text().toInt());
+    (this->findChild<QTextBrowser *>("Brw_status"))->append(QString::number(objlabel));
+    (this->findChild<QLineEdit *>("Led_object_label"))->setText(QString::number(objlabel));
 }
 
 void ScanReader::save()  // slot
 {
     if (!s_saving)
     {
-        QString filename = QFileDialog::getOpenFileName(this, "choose Save path","E:\\",".txt");
-        (this->findChild<QTextBrowser *>("Brw_status"))->append(filename + "\n");
-        emit startsave(filename);
-        (this->findChild<QPushButton *>("Btn_savedata"))->setText("保存中...");
-        s_saving = true;
+        // save file dialog
+        QString filename = QFileDialog::getSaveFileName(this, "Save as","F:\\","Text files(*.txt)", new QString("Text files(*.txt)"));
+        if (!filename.isNull())
+        {
+            (this->findChild<QTextBrowser *>("Brw_status"))->append(filename + ".txt\n");
+            emit startsave(filename+".txt");
+            (this->findChild<QPushButton *>("Btn_savedata"))->setText("保存中...");
+            s_saving = true;
+        }
     }
     else
     {
