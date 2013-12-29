@@ -14,7 +14,7 @@ public:
     void load_model(const char *model_file_name);
     double dot(double *x1, double *x2, int size);
     double rbf(double *x1, double *x2, int size);
-    double AUCofROC(double *score, double *classtag, int size);    
+    double AUCofROC(double *score, double *classtag, int size, double& ap);
 
 private:
     struct svm_parameter param;

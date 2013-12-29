@@ -136,10 +136,10 @@ void PreProcess::Segmentation(double *sig, int bufferlength,      // raw data an
     int sample = 0;     // number of samples processed
     int i, j, ch, onset;
     double meanofpre200;
-    int ecnum = 0;              // event number without mouse click (250)
+    int ecnum = 0;              // event number without mouse click (200)
     for (i=0; i<eventnum; ++i)  // for every event
     {
-        if (ecLabel[i]==250)   // 250 for mouse click
+        if (ecLabel[i]==200)   // 200 for mouse click
             continue;
         ecnum++;
         qDebug() << QString::number(ecnum) << "&&&\n";

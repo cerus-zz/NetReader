@@ -78,7 +78,9 @@ private:
     // Description for ClientControl
     enum {RequestEDFHeader=1, RequestASTSetupFile, RequestStartData, RequestStopData, RequestBasicInfo};
     // type of requested data
-    enum {DataType_InfoBlock=1, DataType_EegData, InfoType_BasicInfo};
+    enum {DataType_InfoBlock=1, DataType_EegData};
+    // type of requested content
+    enum {stdEdfHeader=2, InfoType_BasicInfo};
     // sizeof(datatype)
     enum {DataTypeRaw16bit=1, DataTypeRaw32bit};
 

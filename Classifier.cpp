@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <exception>
 #include <QMessageBox>
+#include <fstream>
 
 Classifier::Classifier(): model(NULL)
 {}
@@ -91,8 +92,8 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
     model = svm_train(&myprob, &param);
     qDebug() << "svm_train just over\n";
     // save model
-//    if (-1 == svm_save_model("F:\\model", model))
-//        qDebug() << "sth. wrong with saving model\n";
+    if (-1 == svm_save_model("F:\\model", model))
+        qDebug() << "sth. wrong with saving model\n";
 
     // this pointers point to non-local object, delete them for safety
     myprob.x = NULL;
@@ -100,7 +101,7 @@ void Classifier::train(int samplesize, int featuredim, double *classtag, double 
     // we don't want to save all train data except the Support vectors
     // but we should transfer the svs to a new mem before we delete the original train data
     svm_node **tmp = model->SV;
-    //model->SV = new svm_node*[model->l];
+    model->SV = new svm_node*[model->l];
     for (i=0; i<model->l; ++i)
     {
         model->SV[i] = new svm_node[featuredim+1];
@@ -145,6 +146,15 @@ double Classifier::test(int testsize, int featuredim, double *classtag, double *
 //        predict_tag[i] = svm_predict(model, testdata);
 //    }
 
+    std::ofstream ofs("F:\\data.txt");
+    for (int ind=0; ind<model->l; ++ind)
+    {
+        for (int offset=0; offset<featuredim; ++offset)
+        {
+            ofs << (*(model->SV + ind) + offset)->value << " ";
+        }
+        ofs << "\n";
+    }
     // calculate geometric margin for test samples
     double geo_margin = 0;
     int i = 0, j = 0, k = 0;
@@ -177,10 +187,11 @@ double Classifier::test(int testsize, int featuredim, double *classtag, double *
     qDebug() << "test over indeed\n";
     double accuracy = 0.0;
     for ( i=0; i<testsize; ++i)
-    {
+    {       
         if ((predict_tag[i]>0 && classtag[i]>0) || (predict_tag[i]<0 && classtag[i]<0))
             accuracy += 1;
     }
+    ofs.close();
     return accuracy / (testsize * 1.0);
 }
 
@@ -237,8 +248,12 @@ void Classifier::quick_sort(Obj *tmp, int low, int high)
     delete lin;
 }
 
-double Classifier::AUCofROC(double *score, double *classtag, int size)
+double Classifier::AUCofROC(double *score, double *classtag, int size, double &ap)
 {        
+    if (0>=size || NULL==score || NULL==classtag)
+    {
+        return -1;
+    }
     Obj    *tmparr= new Obj[size];
     double *roc_x = new double[2+size];
     double *roc_y = new double[2+size];
@@ -254,23 +269,32 @@ double Classifier::AUCofROC(double *score, double *classtag, int size)
         else
             ++Nnum;
     }
-
+    if (0==Pnum || 0==Nnum)
+    {
+        return -2;
+    }
     // SORT score first in descending order!
     quick_sort(tmparr, 0 ,size-1);
     roc_x[0] = roc_y[0] = 0;
     double fp = 0;      // false positive
     double tp = 0;      // true positive
+    ap = 0;
     for (i=1; i<1+size; ++i)
     {
         if (1==tmparr[i-1].label)
+        {
             ++tp;
+            // calculate ap value
+            ap += tp/i;
+        }
         else
             ++fp;
         roc_x[i] = fp / Nnum;
-        roc_y[i] = tp / Pnum;
+        roc_y[i] = tp / Pnum;        
     }
     roc_x[1+size] = fp / Nnum;
     roc_y[1+size] = tp / Pnum;
+    ap /= 15.0;
 
     double auc = 0;
     for (i=0; i<1+size; ++i)

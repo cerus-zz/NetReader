@@ -205,35 +205,14 @@ void DataScanSocket::prelusion()
 //            in.readRawData(msg.chId,4);
 //            in.setByteOrder(QDataStream::BigEndian);     // !network BigEndian
 //            in >> msg.Code >> msg.Request >> msg.Size;
+//            qDebug() << msg.Code << " " << msg.Request << " " << msg.Size << " \n";
 //            in.setByteOrder(QDataStream::LittleEndian);  // change back
-//            if (msg.Code==DataType_InfoBlock && msg.Request==InfoType_BasicInfo
-//                    && msg.Size==BasicInfoSize)
+//            if (msg.Code==DataType_InfoBlock && msg.Request==stdEdfHeader)
 //            {
-//                in.setFloatingPointPrecision(QDataStream::SinglePrecision);
-//                in >> basicinfo.size         >> basicinfo.EegChannelNum
-//                   >> basicinfo.EventChannel >> basicinfo.BlockPnts
-//                   >> basicinfo.SamplingRate >> basicinfo.DataSize
-//                   >> basicinfo.fResolution;
+//                double p;
+//                in >> p;
+//                qDebug() << p;
 //            }
-//            /*Debug:
-//             *  be sure of head infomation
-//             */
-//            QFile ofs("F:\\my_cs\\program-related\\Qtprogramming\\bin\\Netreader\\data.txt");
-//            QTextStream out;
-//            ofs.open(QIODevice::WriteOnly);
-//            if (ofs.exists())
-//            {
-//                out.setDevice(&ofs);
-//                out << msg.Code << " " << msg.Request << " " << msg.Size << ";; ";
-//                out << basicinfo.size << " ;"<< basicinfo.EegChannelNum << " ;"
-//                    << basicinfo.EventChannel << " ;" << basicinfo.BlockPnts << " ;"
-//                    << basicinfo.SamplingRate << " ;" << basicinfo.DataSize << " ;"
-//                    << basicinfo.fResolution << "\n\n";
-
-//                ofs.close();
-//            }
-//            else
-//                qDebug() << "file open failed\n";
 //            /*end*/
 //            break;       // have gained basic infomation, so don't wait here
 //        }

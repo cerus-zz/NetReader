@@ -241,7 +241,7 @@ QGroupBox *ScanReader::createOtherGBox()
 
 void ScanReader::start()       // slot
 {        
-    if ( dsocket && QAbstractSocket::ConnectedState==dsocket->state() && tcpThread->isRunning() && calcprocess==NULL)  //
+    if ( dsocket!=NULL && QAbstractSocket::ConnectedState==dsocket->state() && calcprocess==NULL)
     {
         QString fadd = (this->findChild<QLineEdit *>("Led_user_ip"))->text();
         ushort fport = (this->findChild<QLineEdit *>("Led_user_port"))->text().toUShort();
@@ -277,13 +277,13 @@ void ScanReader::start()       // slot
         QObject::connect(calcprocess, SIGNAL(ShowObj(int)), this, SLOT(showObj(int)),Qt::DirectConnection);
         calcThread->start();
     }
-    else if (QAbstractSocket::ConnectedState!=dsocket->state())
+    else if (dsocket!=NULL && QAbstractSocket::ConnectedState!=dsocket->state())
     {
         (this->findChild<QTextBrowser *>("Brw_status"))->append("-- connect failed, server problem!!!\n");
     }
     else if (NULL != calcprocess)
     {
-        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- Thread for reading data has been here!!!\n");
+        (this->findChild<QTextBrowser *>("Brw_status"))->append("-- Don't need to Start again!!!\n");
     }
     else
     {

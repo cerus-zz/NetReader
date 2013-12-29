@@ -35,7 +35,7 @@ Calculation::Calculation(DataScanSocket *tcpsocket, QString &fip, ushort fport, 
     }
     else
         m_featuredim /= downsample;
-    qDebug() << "m_featuredim is :" << m_featuredim << "!!!!!!!!!!!!!!!!!!!!!!!\n";
+//    qDebug() << "m_featuredim is :" << m_featuredim << "!!!!!!!!!!!!!!!!!!!!!!!\n";
 //    m_featuredim = 6000;
     // Note: default training data for most 10 runs, and 250 event labels in a run !!! and 10 downsampling
     qDebug() << "new for double";
@@ -128,6 +128,11 @@ void Calculation::startTest()
 {
     if (m_readygo)
     {
+        if (0==m_ecnums.size())
+        {
+            emit Printstatus(".. no test data ..");
+            return;
+        }
         emit Printstatus(".. tTESTing... ..");
         sendCmd2user("C");
         // Note:
@@ -146,8 +151,10 @@ void Calculation::startTest()
         else
         {
             emit Printstatus(".. test accuracy is: " + QString::number(accuracy) + " ..");
-            double auc = m_classifier->AUCofROC(predict_label, m_classTag+(m_samplesize-ecnum), ecnum);
+            double ap;
+            double auc = m_classifier->AUCofROC(predict_label, m_classTag+(m_samplesize-ecnum), ecnum, ap);
             emit Printstatus(".. test AUC is: " + QString::number(auc) + " ..");
+            emit Printstatus(".. result AP is: " + QString::number(ap) + " ..");
             //do something with predict_label, i.e. send feedback(result) to users
             QByteArray block;
             QDataStream out(&block, QIODevice::WriteOnly);
@@ -201,7 +208,7 @@ void Calculation::stoprunning()
 }
 
 void Calculation::calc()
-{    
+{       
     //****************** connect to user socket *********************//
     m_feedbackSocket = new QTcpSocket();
     QHostAddress hostAddr(m_fipadd);
@@ -286,7 +293,7 @@ void Calculation::calc()
                 for (int rw=0; rw<blockSamnum; ++rw)
                 {
                     //  event channel is the LAST channel
-                    eventclass = tmpMsq->pbody.at(rw*(channelnum+1)+channelnum);                   
+                    eventclass = tmpMsq->pbody.at(rw*(channelnum+1)+channelnum);
                     /* using eventclass to judge if the trial should begin or over */
                     if (r_inTrial)
                     {
@@ -353,7 +360,7 @@ void Calculation::calc()
                             r_inTrial = true;
                             curclm = ecnum = 0;
                         }
-                        else if (second_on_off && eventclass!=0 && eventclass<250)
+                        else if (second_on_off && eventclass!=0 && eventclass<200)
                         {
                             // note that, here we think that if a label, which is not equal to any of
                             // {252(break), 253(over),255(start)}, must be an object label of a run
@@ -429,19 +436,19 @@ void Calculation::calc()
             m_readygo = true;
 
             // TEST: output samples (feature vectors)****************************
-            if (ofsam)
-            {
-                int havesize = m_samplesize*m_featuredim;
-                for (int i=0; i<ecnum; ++i)
-                {
-                    ofsam << m_classTag[i] << " ";
-                    for (int j=0; j<m_featuredim; ++j)
-                    {
-                        ofsam << *(m_trainData + havesize + i*m_featuredim + j) << " ";
-                    }
-                    ofsam << "\n";
-                }
-            }
+//            if (ofsam)
+//            {
+//                int havesize = m_samplesize*m_featuredim;
+//                for (int i=0; i<ecnum; ++i)
+//                {
+//                    ofsam << m_classTag[i] << " ";
+//                    for (int j=0; j<m_featuredim; ++j)
+//                    {
+//                        ofsam << *(m_trainData + havesize + i*m_featuredim + j) << " ";
+//                    }
+//                    ofsam << "\n";
+//                }
+//            }
             //********************************************************************
 
             // in case for preprocessing during a trial
